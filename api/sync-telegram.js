@@ -84,6 +84,16 @@ module.exports = async (req, res) => {
         const allPhotos = [...profilePhotos, ...chatPhotos];
         console.log(`总共找到 ${allPhotos.length} 张图片`);
         
+        // 打印所有找到的图片的file_id，用于调试
+        if (allPhotos.length > 0) {
+            console.log('找到的图片file_id列表:');
+            allPhotos.forEach((photo, index) => {
+                console.log(`  ${index + 1}. ${photo.file_id} (${photo.type})`);
+            });
+        } else {
+            console.log('警告：没有找到任何图片，这可能是Telegram API访问问题');
+        }
+        
         // 同步到数据库
         const syncResult = await syncPhotosToDatabase(allPhotos);
         const syncedCount = syncResult.syncedCount;
@@ -130,14 +140,30 @@ async function syncPhotosToDatabase(photos) {
         const existingTelegramImages = await getAllTelegramImages();
         console.log(`数据库中有 ${existingTelegramImages.length} 张Telegram图片`);
         
+        // 打印数据库中找到的Telegram图片，用于调试
+        if (existingTelegramImages.length > 0) {
+            console.log('数据库中的Telegram图片列表:');
+            existingTelegramImages.forEach((img, index) => {
+                console.log(`  ${index + 1}. ID: ${img.id}, FileId: ${img.fileId}, Category: ${img.category}`);
+            });
+        }
+        
         // 3. 创建一个映射，存储已存在图片的分类信息
         const existingImageCategories = {};
         for (const img of existingTelegramImages) {
             existingImageCategories[img.fileId] = img.category;
         }
         
-        // 4. 删除数据库中存在但Telegram中不存在的图片
-        deletedCount = await deleteTelegramImagesNotInList(currentFileIds);
+        // 4. 删除不在当前Telegram列表中的图片
+        if (existingTelegramImages.length > 0) {
+            console.log(`开始检查需要删除的图片...`);
+            console.log(`当前Telegram图片fileId列表: [${currentFileIds.join(', ')}]`);
+            
+            deletedCount = await deleteTelegramImagesNotInList(currentFileIds);
+            console.log(`删除了 ${deletedCount} 张已不存在的图片`);
+        } else {
+            console.log('数据库中没有Telegram图片，跳过删除步骤');
+        }
         
         // 5. 处理当前Telegram中的图片
         for (const photo of photos) {
@@ -639,74 +665,105 @@ async function getUpdatesFallback(photos, resolve, reject) {
     try {
         console.log('开始使用getUpdates方法获取消息更新...');
         
-        const options = {
-            hostname: 'api.telegram.org',
-            port: 443,
-            path: `/bot${TELEGRAM_BOT_TOKEN}/getUpdates?limit=100&allowed_updates=["message","channel_post"]`,
-            method: 'GET',
-            timeout: 15000 // 15秒超时
-        };
+        // 首先尝试获取最近的更新
+        let allPhotos = [];
+        let offset = -1; // 从最早的更新开始
+        let hasMore = true;
+        let totalUpdates = 0;
+        const maxUpdates = 1000; // 限制最大获取数量
         
-        console.log('正在请求getUpdates API...');
-        const req = https.request(options, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            res.on('end', async () => {
-                try {
-                    console.log(`getUpdates API响应状态码: ${res.statusCode}`);
-                    const response = JSON.parse(data);
-                    
-                    if (res.statusCode >= 200 && res.statusCode < 300) {
-                        if (response.ok && response.result && Array.isArray(response.result)) {
-                            console.log(`getUpdates API返回成功，获取到 ${response.result.length} 条更新`);
-                            
-                            // 打印前几条更新的信息用于调试
-                            if (response.result.length > 0) {
-                                console.log(`第一条更新: ID=${response.result[0].update_id}, 消息ID=${response.result[0].message ? response.result[0].message.message_id : response.result[0].channel_post ? response.result[0].channel_post.message_id : 'N/A'}, 日期=${response.result[0].message ? new Date(response.result[0].message.date * 1000).toISOString() : response.result[0].channel_post ? new Date(response.result[0].channel_post.date * 1000).toISOString() : 'N/A'}`);
-                                if (response.result.length > 1) {
-                                    console.log(`最后一条更新: ID=${response.result[response.result.length-1].update_id}, 消息ID=${response.result[response.result.length-1].message ? response.result[response.result.length-1].message.message_id : response.result[response.result.length-1].channel_post ? response.result[response.result.length-1].channel_post.message_id : 'N/A'}, 日期=${response.result[response.result.length-1].message ? new Date(response.result[response.result.length-1].message.date * 1000).toISOString() : response.result[response.result.length-1].channel_post ? new Date(response.result[response.result.length-1].channel_post.date * 1000).toISOString() : 'N/A'}`);
-                                }
-                            }
-                            
-                            // 处理消息更新
-                            const messages = response.result.map(update => update.message || update.channel_post).filter(Boolean);
-                            console.log(`从更新中提取出 ${messages.length} 条消息`);
-                            
-                            await processMessages(messages, photos);
-                            console.log(`从getUpdates获取到 ${photos.length} 张图片`);
-                            resolve(photos);
-                        } else {
-                            console.log('没有获取到消息更新');
-                            if (!response.ok) {
-                                console.error('getUpdates API返回错误:', response.description);
-                            }
-                            resolve(photos);
+        while (hasMore && totalUpdates < maxUpdates) {
+            const offsetParam = offset > 0 ? `&offset=${offset}` : '';
+            const options = {
+                hostname: 'api.telegram.org',
+                port: 443,
+                path: `/bot${TELEGRAM_BOT_TOKEN}/getUpdates?limit=100${offsetParam}&allowed_updates=["message","channel_post"]`,
+                method: 'GET',
+                timeout: 15000 // 15秒超时
+            };
+            
+            console.log(`正在请求getUpdates API (offset: ${offset})...`);
+            
+            const response = await new Promise((reqResolve, reqReject) => {
+                const req = https.request(options, (res) => {
+                    let data = '';
+                    res.on('data', (chunk) => {
+                        data += chunk;
+                    });
+                    res.on('end', () => {
+                        try {
+                            const parsedResponse = JSON.parse(data);
+                            reqResolve({ statusCode: res.statusCode, data: parsedResponse });
+                        } catch (error) {
+                            reqReject(new Error(`Failed to parse response: ${error.message}`));
                         }
-                    } else {
-                        console.error(`getUpdates API HTTP错误: ${res.statusCode}`);
-                        reject(new Error(`HTTP ${res.statusCode}: ${response.description || 'Unknown error'}`));
-                    }
-                } catch (error) {
-                    console.error('解析getUpdates响应失败:', error.message);
-                    reject(new Error(`Failed to parse getUpdates response: ${error.message}`));
-                }
+                    });
+                });
+                
+                req.on('error', (error) => {
+                    reqReject(error);
+                });
+                
+                req.on('timeout', () => {
+                    req.destroy();
+                    reqReject(new Error('Request timeout'));
+                });
+                
+                req.end();
             });
-        });
+            
+            if (response.statusCode >= 200 && response.statusCode < 300) {
+                const { data } = response;
+                
+                if (data.ok && data.result && Array.isArray(data.result)) {
+                    console.log(`getUpdates API返回成功，获取到 ${data.result.length} 条更新`);
+                    totalUpdates += data.result.length;
+                    
+                    // 处理消息更新
+                    const messages = data.result.map(update => update.message || update.channel_post).filter(Boolean);
+                    console.log(`从更新中提取出 ${messages.length} 条消息`);
+                    
+                    // 处理消息并添加到临时数组
+                    const tempPhotos = [];
+                    await processMessages(messages, tempPhotos);
+                    allPhotos.push(...tempPhotos);
+                    
+                    // 检查是否还有更多更新
+                    if (data.result.length > 0) {
+                        // 设置下一次请求的offset为最后一个update_id + 1
+                        offset = data.result[data.result.length - 1].update_id + 1;
+                    } else {
+                        hasMore = false;
+                    }
+                } else {
+                    console.log('没有获取到消息更新');
+                    if (!data.ok) {
+                        console.error('getUpdates API返回错误:', data.description);
+                    }
+                    hasMore = false;
+                }
+            } else {
+                console.error(`getUpdates API HTTP错误: ${response.statusCode}`);
+                hasMore = false;
+            }
+        }
         
-        req.on('error', (error) => {
-            console.error('getUpdates请求失败:', error);
-            reject(error);
-        });
+        console.log(`getUpdates总共获取了 ${totalUpdates} 条更新，其中包含 ${allPhotos.length} 张图片`);
         
-        req.on('timeout', () => {
-            console.error('getUpdates请求超时');
-            req.destroy();
-            reject(new Error('Request timeout'));
-        });
+        // 去重：根据file_id去除重复的图片
+        const uniquePhotos = [];
+        const seenFileIds = new Set();
         
-        req.end();
+        for (const photo of allPhotos) {
+            if (photo.file_id && !seenFileIds.has(photo.file_id)) {
+                seenFileIds.add(photo.file_id);
+                uniquePhotos.push(photo);
+            }
+        }
+        
+        console.log(`去重后有 ${uniquePhotos.length} 张唯一图片`);
+        photos.push(...uniquePhotos);
+        resolve(photos);
     } catch (error) {
         console.error('getUpdatesFallback函数执行失败:', error);
         reject(error);

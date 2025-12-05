@@ -303,16 +303,23 @@ async function getAllTelegramImages() {
 async function deleteTelegramImagesNotInList(currentFileIds) {
   try {
     console.log('开始删除不在当前Telegram列表中的图片...');
+    console.log(`当前Telegram图片fileId列表: [${currentFileIds.join(', ')}]`);
+    
     const telegramImages = await getAllTelegramImages();
     const currentFileIdSet = new Set(currentFileIds);
+    
+    console.log(`数据库中有 ${telegramImages.length} 张Telegram图片`);
+    console.log(`当前Telegram中有 ${currentFileIds.length} 张图片`);
     
     let deletedCount = 0;
     
     for (const img of telegramImages) {
       if (!currentFileIdSet.has(img.fileId)) {
-        console.log(`删除已不存在的Telegram图片: ${img.fileId}`);
+        console.log(`删除已不存在的Telegram图片: ID=${img.id}, FileId=${img.fileId}, Category=${img.category}`);
         await deleteImage(img.id);
         deletedCount++;
+      } else {
+        console.log(`保留Telegram图片: ID=${img.id}, FileId=${img.fileId}, Category=${img.category}`);
       }
     }
     
