@@ -56,8 +56,7 @@ module.exports = async (req, res) => {
     
     try {
         console.log('开始从Telegram同步图片...');
-        
-
+        console.log('新图片将保存到根目录，已存在的图片将保留在原文件夹中');
         
         // 检查是否是频道（频道ID通常是负数）
         const isChannel = TELEGRAM_CHAT_ID.startsWith('-');
@@ -93,24 +92,15 @@ module.exports = async (req, res) => {
                 const existingImage = await getImageByFileId(photo.file_id);
                 
                 if (!existingImage) {
-                    // 根据图片类型确定分类
-                    let category = 'general';
-                    
-                    if (photo.type === 'user_profile') {
-                        category = 'avatar';
-                    } else if (photo.type === 'message_photo' || photo.type === 'document_image') {
-                        category = 'chat';
-                    }
-                    
                     // 构建图片信息（photo对象已经包含url）
                     const imageInfo = {
                         filename: `telegram_${photo.file_id}`,
                         url: photo.url,
                         size: photo.file_size || photo.fileSize || 0,
                         fileId: photo.file_id,
-                        category: category,
+                        category: photo.category || 'general',
                         type: photo.type,
-                        folderId: null, // 新图片默认放在根目录
+                        folderId: null, // 新图片默认保存到根目录
                         metadata: {
                             messageId: photo.messageId,
                             from: photo.from,
@@ -122,7 +112,7 @@ module.exports = async (req, res) => {
                     
                     await addImage(imageInfo);
                     syncedCount++;
-                    console.log(`已同步图片: ${photo.file_id} (${photo.type}) 到根目录`);
+                    console.log(`已同步图片: ${photo.file_id} (${photo.type}) 到数据库`);
                 } else {
                     // 图片已存在，始终保留原有的文件夹信息
                     console.log(`跳过已存在的图片: ${photo.file_id}，保留在原文件夹中`);
@@ -135,12 +125,13 @@ module.exports = async (req, res) => {
         
         return res.status(200).json({
             success: true,
-            message: `同步完成，新增 ${syncedCount} 张图片，跳过 ${skippedCount} 张已存在的图片`,
+            message: `同步完成，新增 ${syncedCount} 张图片到根目录，跳过 ${skippedCount} 张已存在的图片（保留在原文件夹中）`,
             syncedCount,
             skippedCount,
             totalPhotos: allPhotos.length,
             profilePhotosCount: profilePhotos.length,
-            chatPhotosCount: chatPhotos.length
+            chatPhotosCount: chatPhotos.length,
+            targetFolderId: null // 明确表示所有新图片都保存到根目录
         });
     } catch (error) {
         console.error('同步Telegram图片时出错:', error);
