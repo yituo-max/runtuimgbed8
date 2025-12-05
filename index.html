@@ -1491,6 +1491,7 @@
                                 <option value="other">其他</option>
                             </select>
                             <button class="btn btn-secondary" id="refreshGalleryBtn" title="强制从服务器刷新图片库">刷新</button>
+                            <button class="btn btn-primary" id="syncTelegramBtn" title="从Telegram同步图片">同步Telegram</button>
                             <button class="btn btn-primary" id="addFolderBtn">新建文件夹</button>
                         </div>
                     </div>
@@ -2190,6 +2191,63 @@
                         }).catch(error => {
                             console.error('强制刷新图片库失败:', error);
                             showNotification('刷新失败: ' + error.message, 'error');
+                        });
+                    });
+                }
+
+                // 同步Telegram按钮事件
+                const syncTelegramBtn = document.getElementById('syncTelegramBtn');
+                if (syncTelegramBtn) {
+                    syncTelegramBtn.addEventListener('click', function() {
+                        // 禁用按钮，防止重复点击
+                        syncTelegramBtn.disabled = true;
+                        syncTelegramBtn.textContent = '同步中...';
+                        
+                        // 显示加载提示
+                        showNotification('正在从Telegram同步图片...', 'info');
+                        
+                        // 调用同步API
+                        fetch('/api/sync-telegram', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${adminToken}`
+                            }
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            if (data.success) {
+                                const profileCount = data.profilePhotosCount || 0;
+                                const chatCount = data.chatPhotosCount || 0;
+                                const totalCount = data.totalImages || 0;
+                                showNotification(`同步成功！获取到 ${profileCount} 张个人照片，${chatCount} 张聊天照片，共 ${totalCount} 张图片`, 'success');
+                                
+                                // 清除缓存时间戳，强制从服务器获取数据
+                                localStorage.removeItem('imageGalleryCacheTimestamp');
+                                
+                                // 刷新图片库
+                                loadDataFromServer(true).then(() => {
+                                    showNotification('图片库已更新', 'success');
+                                }).catch(error => {
+                                    console.error('刷新图片库失败:', error);
+                                });
+                            } else {
+                                showNotification('同步失败: ' + (data.error || '未知错误'), 'error');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('同步Telegram错误:', error);
+                            showNotification('同步失败: ' + error.message, 'error');
+                        })
+                        .finally(() => {
+                            // 恢复按钮状态
+                            syncTelegramBtn.disabled = false;
+                            syncTelegramBtn.textContent = '同步Telegram';
                         });
                     });
                 }
