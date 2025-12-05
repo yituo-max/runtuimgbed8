@@ -7,6 +7,15 @@ const { verifyAdminToken } = require('./auth-middleware');
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
+// 验证环境变量
+if (!TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN === 'your_bot_token_here') {
+    console.error('错误: TELEGRAM_BOT_TOKEN 环境变量未设置或使用了占位符值');
+}
+
+if (!TELEGRAM_CHAT_ID || TELEGRAM_CHAT_ID === 'your_chat_id_here') {
+    console.error('错误: TELEGRAM_CHAT_ID 环境变量未设置或使用了占位符值');
+}
+
 module.exports = async (req, res) => {
     // 设置CORS头
     res.setHeader('Content-Type', 'application/json');
@@ -30,17 +39,42 @@ module.exports = async (req, res) => {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     
+    // 验证环境变量
+    if (!TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN === 'your_bot_token_here') {
+        return res.status(500).json({ 
+            error: 'Configuration error', 
+            message: 'TELEGRAM_BOT_TOKEN 环境变量未设置或使用了占位符值。请在部署环境中设置正确的Bot Token。' 
+        });
+    }
+    
+    if (!TELEGRAM_CHAT_ID || TELEGRAM_CHAT_ID === 'your_chat_id_here') {
+        return res.status(500).json({ 
+            error: 'Configuration error', 
+            message: 'TELEGRAM_CHAT_ID 环境变量未设置或使用了占位符值。请在部署环境中设置正确的Chat ID。' 
+        });
+    }
+    
     try {
         console.log('开始从Telegram同步图片...');
         
-        // 获取用户个人资料照片
-        console.log('正在获取用户个人资料照片...');
-        const profilePhotos = await getUserProfilePhotos();
-        console.log(`找到 ${profilePhotos.length} 张个人资料照片`);
+        // 检查是否是频道（频道ID通常是负数）
+        const isChannel = TELEGRAM_CHAT_ID.startsWith('-');
+        
+        let profilePhotos = [];
+        let chatPhotos = [];
+        
+        if (isChannel) {
+            console.log('检测到频道ID，跳过获取个人资料照片');
+        } else {
+            // 获取用户个人资料照片
+            console.log('正在获取用户个人资料照片...');
+            profilePhotos = await getUserProfilePhotos();
+            console.log(`找到 ${profilePhotos.length} 张个人资料照片`);
+        }
         
         // 获取聊天消息中的图片
         console.log('正在获取聊天消息中的图片...');
-        const chatPhotos = await getChatPhotos();
+        chatPhotos = await getChatPhotos();
         console.log(`找到 ${chatPhotos.length} 张聊天消息中的图片`);
         
         // 合并所有图片
@@ -116,6 +150,14 @@ module.exports = async (req, res) => {
 async function getUserProfilePhotos() {
     return new Promise((resolve, reject) => {
         try {
+            // 检查是否是频道（频道ID通常是负数）
+            const isChannel = TELEGRAM_CHAT_ID.startsWith('-');
+            
+            if (isChannel) {
+                console.log('频道不支持获取个人资料照片，返回空数组');
+                return resolve([]);
+            }
+            
             const options = {
                 hostname: 'api.telegram.org',
                 port: 443,
@@ -218,8 +260,17 @@ async function getChatPhotos() {
                                     const message = update.message || update.channel_post;
                                     if (!message) continue;
                                     
-                                    // 只处理来自指定聊天的消息
-                                    if (message.chat.id.toString() !== TELEGRAM_CHAT_ID.toString()) continue;
+                                    // 处理频道消息（频道ID通常是负数）
+                                    const chatId = message.chat.id.toString();
+                                    const targetChatId = TELEGRAM_CHAT_ID.toString();
+                                    
+                                    // 检查是否来自目标频道
+                                    if (chatId !== targetChatId) {
+                                        console.log(`跳过来自其他频道的消息: ${chatId} (目标: ${targetChatId})`);
+                                        continue;
+                                    }
+                                    
+                                    console.log(`处理来自频道 ${chatId} 的消息`);
                                     
                                     // 处理照片消息
                                     if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
@@ -239,11 +290,12 @@ async function getChatPhotos() {
                                                     
                                                     // 添加到图片数组
                                                     photos.push({
+                                                        file_id: fileId,
                                                         ...photo,
                                                         url: imageUrl,
                                                         type: 'message_photo',
                                                         messageId: message.message_id,
-                                                        from: message.from?.id || 'unknown',
+                                                        from: message.from?.id || 'channel',
                                                         date: message.date,
                                                         caption: message.caption || ''
                                                     });
@@ -269,11 +321,11 @@ async function getChatPhotos() {
                                                     
                                                     // 添加到图片数组
                                                     photos.push({
-                                                        fileId: fileId,
+                                                        file_id: fileId,
                                                         url: imageUrl,
                                                         type: 'document_image',
                                                         messageId: message.message_id,
-                                                        from: message.from?.id || 'unknown',
+                                                        from: message.from?.id || 'channel',
                                                         date: message.date,
                                                         caption: message.caption || '',
                                                         fileName: message.document.file_name || '',
