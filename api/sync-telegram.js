@@ -193,133 +193,124 @@ async function getChatPhotos() {
     return new Promise((resolve, reject) => {
         try {
             const photos = [];
-            let offset = 0;
-            const limit = 100;
             
-            // 递归函数，用于获取更多消息
-            function getMoreMessages(offset, limit, photos, resolve, reject) {
-                console.log(`获取历史消息，偏移量: ${offset}`);
-                
-                const options = {
-                    hostname: 'api.telegram.org',
-                    port: 443,
-                    path: `/bot${TELEGRAM_BOT_TOKEN}/getChatHistory?chat_id=${TELEGRAM_CHAT_ID}&limit=${limit}&offset=${offset}`,
-                    method: 'GET',
-                    timeout: 15000 // 15秒超时
-                };
-                
-                const req = https.request(options, (res) => {
-                    let data = '';
-                    res.on('data', (chunk) => {
-                        data += chunk;
-                    });
-                    res.on('end', async () => {
-                        try {
-                            const response = JSON.parse(data);
-                            if (res.statusCode >= 200 && res.statusCode < 300) {
-                                if (response.ok && response.result && response.result.messages) {
-                                    // 处理当前批次的消息
-                                    for (const message of response.result.messages) {
-                                        if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
-                                            // 获取最高分辨率的照片（数组中的最后一个）
-                                            const photo = message.photo[message.photo.length - 1];
-                                            if (photo && photo.file_id) {
-                                                const fileId = photo.file_id;
-                                                
-                                                // 检查图片是否已存在于数据库中
-                                                const existingImage = await getImageByFileId(fileId);
-                                                if (!existingImage) {
-                                                    // 获取文件路径
-                                                    const fileResponse = await getTelegramFilePath(fileId);
-                                                    if (fileResponse.ok && fileResponse.result.file_path) {
-                                                        // 构建图片URL
-                                                        const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
-                                                        
-                                                        // 添加到图片数组
-                                                        photos.push({
-                                                            ...photo,
-                                                            url: imageUrl,
-                                                            type: 'message_photo',
-                                                            messageId: message.message_id,
-                                                            from: message.from?.id || 'unknown',
-                                                            date: message.date,
-                                                            caption: message.caption || ''
-                                                        });
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        
-                                        // 处理消息中的文档（可能是图片）
-                                        if (message.document && message.document.file_id && message.document.mime_type) {
-                                            // 检查是否是图片类型
-                                            if (message.document.mime_type.startsWith('image/')) {
-                                                const fileId = message.document.file_id;
-                                                
-                                                // 检查图片是否已存在于数据库中
-                                                const existingImage = await getImageByFileId(fileId);
-                                                if (!existingImage) {
-                                                    // 获取文件路径
-                                                    const fileResponse = await getTelegramFilePath(fileId);
-                                                    if (fileResponse.ok && fileResponse.result.file_path) {
-                                                        // 构建图片URL
-                                                        const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
-                                                        
-                                                        // 添加到图片数组
-                                                        photos.push({
-                                                            fileId: fileId,
-                                                            url: imageUrl,
-                                                            type: 'document_image',
-                                                            messageId: message.message_id,
-                                                            from: message.from?.id || 'unknown',
-                                                            date: message.date,
-                                                            caption: message.caption || '',
-                                                            fileName: message.document.file_name || '',
-                                                            mimeType: message.document.mime_type,
-                                                            fileSize: message.document.file_size || 0
-                                                        });
-                                                    }
+            // 使用getUpdates方法获取消息更新
+            const options = {
+                hostname: 'api.telegram.org',
+                port: 443,
+                path: `/bot${TELEGRAM_BOT_TOKEN}/getUpdates?limit=100&allowed_updates=["message","channel_post"]`,
+                method: 'GET',
+                timeout: 15000 // 15秒超时
+            };
+            
+            const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                res.on('end', async () => {
+                    try {
+                        const response = JSON.parse(data);
+                        if (res.statusCode >= 200 && res.statusCode < 300) {
+                            if (response.ok && response.result && Array.isArray(response.result)) {
+                                // 处理消息更新
+                                for (const update of response.result) {
+                                    const message = update.message || update.channel_post;
+                                    if (!message) continue;
+                                    
+                                    // 只处理来自指定聊天的消息
+                                    if (message.chat.id.toString() !== TELEGRAM_CHAT_ID.toString()) continue;
+                                    
+                                    // 处理照片消息
+                                    if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
+                                        // 获取最高分辨率的照片（数组中的最后一个）
+                                        const photo = message.photo[message.photo.length - 1];
+                                        if (photo && photo.file_id) {
+                                            const fileId = photo.file_id;
+                                            
+                                            // 检查图片是否已存在于数据库中
+                                            const existingImage = await getImageByFileId(fileId);
+                                            if (!existingImage) {
+                                                // 获取文件路径
+                                                const fileResponse = await getTelegramFilePath(fileId);
+                                                if (fileResponse.ok && fileResponse.result.file_path) {
+                                                    // 构建图片URL
+                                                    const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
+                                                    
+                                                    // 添加到图片数组
+                                                    photos.push({
+                                                        ...photo,
+                                                        url: imageUrl,
+                                                        type: 'message_photo',
+                                                        messageId: message.message_id,
+                                                        from: message.from?.id || 'unknown',
+                                                        date: message.date,
+                                                        caption: message.caption || ''
+                                                    });
                                                 }
                                             }
                                         }
                                     }
                                     
-                                    // 检查是否还有更多消息
-                                    if (response.result.messages.length < limit) {
-                                        console.log('已获取所有历史消息');
-                                        resolve(photos);
-                                    } else {
-                                        // 更新偏移量，继续获取下一批消息
-                                        offset += limit;
-                                        getMoreMessages(offset, limit, photos, resolve, reject);
+                                    // 处理消息中的文档（可能是图片）
+                                    if (message.document && message.document.file_id && message.document.mime_type) {
+                                        // 检查是否是图片类型
+                                        if (message.document.mime_type.startsWith('image/')) {
+                                            const fileId = message.document.file_id;
+                                            
+                                            // 检查图片是否已存在于数据库中
+                                            const existingImage = await getImageByFileId(fileId);
+                                            if (!existingImage) {
+                                                // 获取文件路径
+                                                const fileResponse = await getTelegramFilePath(fileId);
+                                                if (fileResponse.ok && fileResponse.result.file_path) {
+                                                    // 构建图片URL
+                                                    const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
+                                                    
+                                                    // 添加到图片数组
+                                                    photos.push({
+                                                        fileId: fileId,
+                                                        url: imageUrl,
+                                                        type: 'document_image',
+                                                        messageId: message.message_id,
+                                                        from: message.from?.id || 'unknown',
+                                                        date: message.date,
+                                                        caption: message.caption || '',
+                                                        fileName: message.document.file_name || '',
+                                                        mimeType: message.document.mime_type,
+                                                        fileSize: message.document.file_size || 0
+                                                    });
+                                                }
+                                            }
+                                        }
                                     }
-                                } else {
-                                    console.log('没有更多历史消息');
-                                    resolve(photos);
                                 }
+                                
+                                console.log(`获取到 ${photos.length} 张新图片`);
+                                resolve(photos);
                             } else {
-                                reject(new Error(`HTTP ${res.statusCode}: ${response.description || 'Unknown error'}`));
+                                console.log('没有获取到消息更新');
+                                resolve(photos);
                             }
-                        } catch (error) {
-                            reject(new Error(`Failed to parse getChatHistory response: ${error.message}`));
+                        } else {
+                            reject(new Error(`HTTP ${res.statusCode}: ${response.description || 'Unknown error'}`));
                         }
-                    });
+                    } catch (error) {
+                        reject(new Error(`Failed to parse getUpdates response: ${error.message}`));
+                    }
                 });
-                
-                req.on('error', (error) => {
-                    reject(error);
-                });
-                
-                req.on('timeout', () => {
-                    req.destroy();
-                    reject(new Error('Request timeout'));
-                });
-                
-                req.end();
-            }
+            });
             
-            // 启动递归获取消息
-            getMoreMessages(offset, limit, photos, resolve, reject);
+            req.on('error', (error) => {
+                reject(error);
+            });
+            
+            req.on('timeout', () => {
+                req.destroy();
+                reject(new Error('Request timeout'));
+            });
+            
+            req.end();
         } catch (error) {
             reject(error);
         }
