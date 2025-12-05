@@ -1491,7 +1491,7 @@
                                 <option value="other">其他</option>
                             </select>
                             <button class="btn btn-secondary" id="refreshGalleryBtn" title="强制从服务器刷新图片库">刷新</button>
-                            <button class="btn btn-primary" id="syncTelegramBtn" title="从Telegram同步图片">同步Telegram</button>
+                        <button class="btn btn-secondary" id="syncTelegramBtn" title="从Telegram同步图片">同步Telegram</button>
                             <button class="btn btn-primary" id="addFolderBtn">新建文件夹</button>
                         </div>
                     </div>
@@ -2175,23 +2175,12 @@
                         });
                 });
 
-                // 刷新图片库按钮事件
+                // 刷新图片库按钮事件（功能已移除）
                 const refreshGalleryBtn = document.getElementById('refreshGalleryBtn');
                 if (refreshGalleryBtn) {
                     refreshGalleryBtn.addEventListener('click', function() {
-                        // 显示加载提示
-                        showNotification('正在从服务器获取最新数据...', 'info');
-                        
-                        // 清除缓存时间戳，强制从服务器获取数据
-                        localStorage.removeItem('imageGalleryCacheTimestamp');
-                        
-                        // 从服务器获取最新数据，强制刷新
-                        loadDataFromServer(true).then(() => {
-                            showNotification('图片库已更新到最新状态', 'success');
-                        }).catch(error => {
-                            console.error('强制刷新图片库失败:', error);
-                            showNotification('刷新失败: ' + error.message, 'error');
-                        });
+                        // 功能已移除，不再执行任何操作
+                        console.log('刷新按钮功能已移除');
                     });
                 }
 
