@@ -1,0 +1,35 @@
+{
+  "name": "runtu-imgbed",
+  "version": "2.0.0",
+  "description": "Telegram Image Hosting Service",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Static site, no build required'",
+    "start": "vercel dev",
+    "init-kv": "node scripts/init-kv.js init",
+    "reset-kv": "node scripts/init-kv.js reset"
+  },
+  "dependencies": {
+    "@ant-design/cssinjs": "^1.0.0",
+    "@vercel/kv": "^1.0.1",
+    "antd": "^5.12.8",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "formidable": "^3.5.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "vercel": "^28.4.8"
+  },
+  "keywords": [
+    "image",
+    "hosting",
+    "telegram",
+    "vercel"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

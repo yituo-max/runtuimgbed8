@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "outputDirectory": ".",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1.js" },
+    { "source": "/img/(.*)", "destination": "/img/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
