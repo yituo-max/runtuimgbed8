@@ -258,6 +258,72 @@ async function getStats() {
   }
 }
 
+// 获取所有Telegram图片（包含fileId字段）
+async function getAllTelegramImages() {
+  try {
+    console.log('获取所有Telegram图片...');
+    // 获取所有图片ID
+    const imageIds = await kv.zrange('imgbed:images', 0, -1);
+    
+    if (!imageIds || imageIds.length === 0) {
+      console.log('没有找到任何图片ID');
+      return [];
+    }
+
+    console.log(`找到${imageIds.length}个图片ID`);
+    
+    // 批量获取图片数据
+    const imageKeys = imageIds.map(id => `${IMAGE_KEY_PREFIX}${id}`);
+    const imagesData = await kv.mget(imageKeys);
+    
+    // 过滤出Telegram图片（有fileId字段的图片）
+    const telegramImages = [];
+    for (const imgData of imagesData) {
+      if (imgData) {
+        const image = typeof imgData === 'string' ? JSON.parse(imgData) : imgData;
+        if (image.fileId) {
+          telegramImages.push({
+            id: image.id,
+            fileId: image.fileId,
+            category: image.category || 'general'
+          });
+        }
+      }
+    }
+    
+    console.log(`找到${telegramImages.length}张Telegram图片`);
+    return telegramImages;
+  } catch (error) {
+    console.error('Error getting all telegram images:', error);
+    return [];
+  }
+}
+
+// 删除不在提供列表中的Telegram图片
+async function deleteTelegramImagesNotInList(currentFileIds) {
+  try {
+    console.log('开始删除不在当前Telegram列表中的图片...');
+    const telegramImages = await getAllTelegramImages();
+    const currentFileIdSet = new Set(currentFileIds);
+    
+    let deletedCount = 0;
+    
+    for (const img of telegramImages) {
+      if (!currentFileIdSet.has(img.fileId)) {
+        console.log(`删除已不存在的Telegram图片: ${img.fileId}`);
+        await deleteImage(img.id);
+        deletedCount++;
+      }
+    }
+    
+    console.log(`删除了${deletedCount}张已不存在的Telegram图片`);
+    return deletedCount;
+  } catch (error) {
+    console.error('Error deleting telegram images not in list:', error);
+    return 0;
+  }
+}
+
 module.exports = {
   getImages,
   getImage,
@@ -266,5 +332,7 @@ module.exports = {
   updateImage,
   deleteImage,
   getCategories,
-  getStats
+  getStats,
+  getAllTelegramImages,
+  deleteTelegramImagesNotInList
 };

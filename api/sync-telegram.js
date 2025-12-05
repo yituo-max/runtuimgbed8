@@ -1,6 +1,6 @@
 // 从Telegram同步所有图片到数据库的API端点
 const https = require('https');
-const { addImage, getImageByFileId, updateImage } = require('./kv-database');
+const { addImage, getImageByFileId, updateImage, getAllTelegramImages, deleteTelegramImagesNotInList } = require('./kv-database');
 const { verifyAdminToken } = require('./auth-middleware');
 
 // 从环境变量获取配置
@@ -60,8 +60,8 @@ module.exports = async (req, res) => {
         console.log(`使用Bot Token: ${TELEGRAM_BOT_TOKEN.substring(0, 10)}...`);
         console.log(`目标频道ID: ${TELEGRAM_CHAT_ID}`);
         
-        // 检查是否是频道（频道ID通常是负数）
-        const isChannel = TELEGRAM_CHAT_ID.startsWith('-');
+        // 检查是否是频道（频道ID通常是负数或以@开头）
+        const isChannel = TELEGRAM_CHAT_ID.startsWith('-') || TELEGRAM_CHAT_ID.startsWith('@');
         
         let profilePhotos = [];
         let chatPhotos = [];
@@ -89,13 +89,15 @@ module.exports = async (req, res) => {
         const syncedCount = syncResult.syncedCount;
         const updatedCount = syncResult.updatedCount;
         const skippedCount = syncResult.skippedCount;
+        const deletedCount = syncResult.deletedCount;
         
         return res.status(200).json({
             success: true,
-            message: `同步完成，新增 ${syncedCount} 张图片到根目录，跳过 ${skippedCount} 张已存在的图片`,
+            message: `同步完成，新增 ${syncedCount} 张图片到根目录，跳过 ${skippedCount} 张已存在的图片，删除 ${deletedCount} 张已不存在的图片`,
             syncedCount,
             updatedCount,
             skippedCount,
+            deletedCount,
             totalPhotos: allPhotos.length,
             profilePhotosCount: profilePhotos.length,
             chatPhotosCount: chatPhotos.length,
@@ -114,51 +116,75 @@ module.exports = async (req, res) => {
 async function syncPhotosToDatabase(photos) {
     let syncedCount = 0;
     let skippedCount = 0;
+    let deletedCount = 0;
     
     console.log(`开始同步 ${photos.length} 张图片到数据库...`);
-    console.log('同步策略：只添加新图片，已存在的图片跳过不更新');
+    console.log('新同步策略：删除Telegram中已不存在的图片，保留已存在图片的分类信息');
     
-    for (const photo of photos) {
-        try {
-            // 检查图片是否已经存在于数据库中
-            console.log(`检查图片是否存在: ${photo.file_id}`);
-            const existingImage = await getImageByFileId(photo.file_id);
-            console.log(`检查结果: ${existingImage ? '存在' : '不存在'}`);
-            
-            if (!existingImage) {
-                // 图片不存在，直接添加到数据库
-                const imageInfo = {
-                    filename: `telegram_${photo.file_id}`,
-                    url: photo.url,
-                    size: photo.file_size || photo.fileSize || 0,
-                    fileId: photo.file_id, // 确保使用小写的fileId，与上传时保持一致
-                    category: photo.category || 'general',
-                    type: photo.type,
-                    folderId: null, // 新图片默认保存到根目录
-                    metadata: {
-                        messageId: photo.messageId,
-                        from: photo.from,
-                        date: photo.date,
-                        caption: photo.caption,
-                        fileName: photo.fileName
-                    }
-                };
-                
-                await addImage(imageInfo);
-                syncedCount++;
-                console.log(`已同步图片: ${photo.file_id} (${photo.type}) 到数据库`);
-            } else {
-                // 图片已存在，跳过不更新
-                skippedCount++;
-                console.log(`跳过已存在的图片: ${photo.file_id}`);
-            }
-        } catch (error) {
-            console.error(`同步图片 ${photo.file_id} 时出错:`, error);
+    try {
+        // 1. 获取当前Telegram中的所有图片fileId
+        const currentFileIds = photos.map(photo => photo.file_id);
+        console.log(`当前Telegram中有 ${currentFileIds.length} 张图片`);
+        
+        // 2. 获取数据库中所有Telegram图片
+        const existingTelegramImages = await getAllTelegramImages();
+        console.log(`数据库中有 ${existingTelegramImages.length} 张Telegram图片`);
+        
+        // 3. 创建一个映射，存储已存在图片的分类信息
+        const existingImageCategories = {};
+        for (const img of existingTelegramImages) {
+            existingImageCategories[img.fileId] = img.category;
         }
+        
+        // 4. 删除数据库中存在但Telegram中不存在的图片
+        deletedCount = await deleteTelegramImagesNotInList(currentFileIds);
+        
+        // 5. 处理当前Telegram中的图片
+        for (const photo of photos) {
+            try {
+                // 检查图片是否已经存在于数据库中
+                console.log(`检查图片是否存在: ${photo.file_id}`);
+                const existingImage = await getImageByFileId(photo.file_id);
+                console.log(`检查结果: ${existingImage ? '存在' : '不存在'}`);
+                
+                if (!existingImage) {
+                    // 图片不存在，添加到数据库，使用之前保存的分类信息（如果有）
+                    const imageInfo = {
+                        filename: `telegram_${photo.file_id}`,
+                        url: photo.url,
+                        size: photo.file_size || photo.fileSize || 0,
+                        fileId: photo.file_id, // 确保使用小写的fileId，与上传时保持一致
+                        category: existingImageCategories[photo.file_id] || photo.category || 'general',
+                        type: photo.type,
+                        folderId: null, // 新图片默认保存到根目录
+                        metadata: {
+                            messageId: photo.messageId,
+                            from: photo.from,
+                            date: photo.date,
+                            caption: photo.caption,
+                            fileName: photo.fileName
+                        }
+                    };
+                    
+                    await addImage(imageInfo);
+                    syncedCount++;
+                    console.log(`已同步图片: ${photo.file_id} (${photo.type}) 到数据库，分类: ${imageInfo.category}`);
+                } else {
+                    // 图片已存在，跳过不更新
+                    skippedCount++;
+                    console.log(`跳过已存在的图片: ${photo.file_id}`);
+                }
+            } catch (error) {
+                console.error(`同步图片 ${photo.file_id} 时出错:`, error);
+            }
+        }
+        
+        console.log(`同步完成，共处理 ${photos.length} 张图片，新增 ${syncedCount} 张，跳过 ${skippedCount} 张，删除 ${deletedCount} 张`);
+        return { syncedCount, updatedCount: 0, skippedCount, deletedCount };
+    } catch (error) {
+        console.error('同步过程中发生错误:', error);
+        throw error;
     }
-    
-    console.log(`同步完成，共处理 ${photos.length} 张图片，新增 ${syncedCount} 张，跳过 ${skippedCount} 张`);
-    return { syncedCount, updatedCount: 0, skippedCount };
 }
 
 // 获取用户个人资料照片
