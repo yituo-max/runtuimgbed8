@@ -174,6 +174,7 @@ module.exports = async (req, res) => {
         // 获取图片信息
         const file = telegramResponse.result.photo[telegramResponse.result.photo.length - 1];
         const fileId = file.file_id;
+        const messageId = telegramResponse.result.message_id; // 获取消息ID
         
         // 获取文件路径
         const fileResponse = await getTelegramFilePath(fileId);
@@ -189,6 +190,7 @@ module.exports = async (req, res) => {
         const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
         
         console.log('Image URL:', imageUrl);
+        console.log('Message ID:', messageId);
         console.log('Is admin:', isAdmin);
         console.log('Fields:', JSON.stringify(fields, null, 2));
         
@@ -212,6 +214,7 @@ module.exports = async (req, res) => {
                 url: imageUrl,
                 size: file.file_size,
                 fileId: fileId,
+                messageId: messageId, // 添加消息ID
                 category: category,
                 uploadTime: new Date().toISOString() // 添加上传时间，用于同步时比较
             };
@@ -225,6 +228,7 @@ module.exports = async (req, res) => {
             success: true,
             imageUrl: isAdmin ? imageUrl : null, // 只有管理员才能看到图片URL
             fileId: fileId,
+            messageId: messageId, // 添加消息ID到响应中
             fileSize: file.file_size,
             message: isAdmin ? 'Image uploaded successfully' : 'Image uploaded successfully but URL is only available to administrators'
         };

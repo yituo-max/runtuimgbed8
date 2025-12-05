@@ -57,6 +57,8 @@ module.exports = async (req, res) => {
     try {
         console.log('开始从Telegram同步图片...');
         console.log('新图片将保存到根目录，已存在的图片将保留在原文件夹中');
+        console.log(`使用Bot Token: ${TELEGRAM_BOT_TOKEN.substring(0, 10)}...`);
+        console.log(`目标频道ID: ${TELEGRAM_CHAT_ID}`);
         
         // 检查是否是频道（频道ID通常是负数）
         const isChannel = TELEGRAM_CHAT_ID.startsWith('-');
@@ -83,76 +85,10 @@ module.exports = async (req, res) => {
         console.log(`总共找到 ${allPhotos.length} 张图片`);
         
         // 同步到数据库
-        let syncedCount = 0;
-        let skippedCount = 0;
-        let updatedCount = 0;
-        
-        for (const photo of allPhotos) {
-            try {
-                // 检查图片是否已经存在于数据库中
-                console.log(`检查图片是否存在: ${photo.file_id}`);
-                const existingImage = await getImageByFileId(photo.file_id);
-                console.log(`检查结果: ${existingImage ? '存在' : '不存在'}`);
-                
-                if (!existingImage) {
-                    // 构建图片信息（photo对象已经包含url）
-                    const imageInfo = {
-                        filename: `telegram_${photo.file_id}`,
-                        url: photo.url,
-                        size: photo.file_size || photo.fileSize || 0,
-                        fileId: photo.file_id, // 确保使用小写的fileId，与上传时保持一致
-                        category: photo.category || 'general',
-                        type: photo.type,
-                        folderId: null, // 新图片默认保存到根目录
-                        metadata: {
-                            messageId: photo.messageId,
-                            from: photo.from,
-                            date: photo.date,
-                            caption: photo.caption,
-                            fileName: photo.fileName
-                        }
-                    };
-                    
-                    await addImage(imageInfo);
-                    syncedCount++;
-                    console.log(`已同步图片: ${photo.file_id} (${photo.type}) 到数据库`);
-                } else {
-                    // 图片已存在，比较上传时间（策略2：以最新数据为准）
-                    const existingTime = new Date(existingImage.uploadDate || existingImage.uploadTime || 0).getTime();
-                    const newTime = new Date(photo.date || Date.now()).getTime();
-                    
-                    if (newTime > existingTime) {
-                        // 新图片更新，更新数据库中的图片
-                        const updatedImageInfo = {
-                            filename: `telegram_${photo.file_id}`,
-                            url: photo.url,
-                            size: photo.file_size || photo.fileSize || 0,
-                            fileId: photo.file_id,
-                            category: photo.category || existingImage.category || 'general', // 保留原有分类或使用新分类
-                            type: photo.type,
-                            folderId: existingImage.folderId, // 保留原有的文件夹信息
-                            metadata: {
-                                messageId: photo.messageId,
-                                from: photo.from,
-                                date: photo.date,
-                                caption: photo.caption,
-                                fileName: photo.fileName
-                            }
-                        };
-                        
-                        await updateImage(existingImage.id, updatedImageInfo);
-                        updatedCount++;
-                        console.log(`更新图片: ${photo.file_id} (保留在原文件夹中)`);
-                    } else {
-                        // 旧图片，跳过
-                        skippedCount++;
-                        console.log(`跳过旧图片: ${photo.file_id}`);
-                    }
-                }
-            } catch (error) {
-                console.error(`同步图片 ${photo.file_id} 时出错:`, error);
-            }
-        }
+        const syncResult = await syncPhotosToDatabase(allPhotos);
+        const syncedCount = syncResult.syncedCount;
+        const updatedCount = syncResult.updatedCount;
+        const skippedCount = syncResult.skippedCount;
         
         return res.status(200).json({
             success: true,
@@ -173,6 +109,87 @@ module.exports = async (req, res) => {
         });
     }
 };
+
+// 同步图片到数据库
+async function syncPhotosToDatabase(photos) {
+    let syncedCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+    
+    console.log(`开始同步 ${photos.length} 张图片到数据库...`);
+    
+    for (const photo of photos) {
+        try {
+            // 检查图片是否已经存在于数据库中
+            console.log(`检查图片是否存在: ${photo.file_id}`);
+            const existingImage = await getImageByFileId(photo.file_id);
+            console.log(`检查结果: ${existingImage ? '存在' : '不存在'}`);
+            
+            if (!existingImage) {
+                // 构建图片信息（photo对象已经包含url）
+                const imageInfo = {
+                    filename: `telegram_${photo.file_id}`,
+                    url: photo.url,
+                    size: photo.file_size || photo.fileSize || 0,
+                    fileId: photo.file_id, // 确保使用小写的fileId，与上传时保持一致
+                    category: photo.category || 'general',
+                    type: photo.type,
+                    folderId: null, // 新图片默认保存到根目录
+                    metadata: {
+                        messageId: photo.messageId,
+                        from: photo.from,
+                        date: photo.date,
+                        caption: photo.caption,
+                        fileName: photo.fileName
+                    }
+                };
+                
+                await addImage(imageInfo);
+                syncedCount++;
+                console.log(`已同步图片: ${photo.file_id} (${photo.type}) 到数据库`);
+            } else {
+                // 图片已存在，比较消息时间戳（策略2：以最新数据为准）
+                const existingTime = new Date(existingImage.uploadDate || existingImage.uploadTime || 0).getTime();
+                const newTime = new Date(photo.date || Date.now()).getTime();
+                
+                console.log(`比较时间戳: ${photo.file_id} - 现有: ${existingTime} (${new Date(existingTime).toISOString()}), 新: ${newTime} (${new Date(newTime).toISOString()})`);
+                
+                if (newTime > existingTime) {
+                    // 新图片更新，更新数据库中的图片
+                    const updatedImageInfo = {
+                        filename: `telegram_${photo.file_id}`,
+                        url: photo.url,
+                        size: photo.file_size || photo.fileSize || 0,
+                        fileId: photo.file_id,
+                        category: photo.category || existingImage.category || 'general', // 保留原有分类或使用新分类
+                        type: photo.type,
+                        folderId: existingImage.folderId, // 保留原有的文件夹信息
+                        metadata: {
+                            messageId: photo.messageId,
+                            from: photo.from,
+                            date: photo.date,
+                            caption: photo.caption,
+                            fileName: photo.fileName
+                        }
+                    };
+                    
+                    await updateImage(existingImage.id, updatedImageInfo);
+                    updatedCount++;
+                    console.log(`更新图片: ${photo.file_id} (保留在原文件夹中)`);
+                } else {
+                    // 旧图片，跳过
+                    skippedCount++;
+                    console.log(`跳过旧图片: ${photo.file_id}`);
+                }
+            }
+        } catch (error) {
+            console.error(`同步图片 ${photo.file_id} 时出错:`, error);
+        }
+    }
+    
+    console.log(`同步完成，共处理 ${photos.length} 张图片，新增 ${syncedCount} 张，更新 ${updatedCount} 张，跳过 ${skippedCount} 张`);
+    return { syncedCount, updatedCount, skippedCount };
+}
 
 // 获取用户个人资料照片
 async function getUserProfilePhotos() {
@@ -334,13 +351,25 @@ async function getChatPhotos() {
 // 获取频道历史消息的辅助函数
 async function getChannelHistoryMessages(photos, resolve, reject) {
     try {
+        console.log(`开始获取频道 ${TELEGRAM_CHAT_ID} 的历史消息...`);
+        
         // 对于私人频道，优先使用getChatHistory方法
         console.log('尝试使用getChatHistory方法获取私人频道历史消息...');
         await tryGetChatHistory(photos, resolve, reject);
     } catch (error) {
         console.error('getChatHistory方法失败，尝试searchChatHistory方法:', error.message);
+        console.log('尝试使用searchChatHistory方法获取历史消息...');
+        
         // 如果getChatHistory失败，尝试searchChatHistory方法
-        await trySearchChatHistory(photos, resolve, reject);
+        try {
+            await trySearchChatHistory(photos, resolve, reject);
+        } catch (searchError) {
+            console.log(`searchChatHistory方法也失败: ${searchError.message}`);
+            
+            // 如果两种方法都失败，尝试使用getUpdates作为后备方案
+            console.log('尝试使用getUpdates方法作为后备方案...');
+            await getUpdatesFallback(photos, resolve, reject);
+        }
     }
 }
 
@@ -352,6 +381,8 @@ async function trySearchChatHistory(photos, resolve, reject) {
             let totalFetched = 0;
             let hasMore = true;
             const limit = 100; // 每次获取100条消息
+            
+            console.log(`开始使用searchChatHistory方法获取频道历史消息...`);
             
             while (hasMore) {
                 // 对于私人频道，使用正确的API参数
@@ -369,6 +400,14 @@ async function trySearchChatHistory(photos, resolve, reject) {
                 if (searchResponse.ok && searchResponse.result && searchResponse.result.messages) {
                     const messages = searchResponse.result.messages;
                     console.log(`通过searchChatHistory获取到 ${messages.length} 条历史消息 (offset: ${offset})`);
+                    
+                    // 打印前几条消息的信息用于调试
+                    if (messages.length > 0) {
+                        console.log(`第一条消息: ID=${messages[0].message_id}, 日期=${new Date(messages[0].date * 1000).toISOString()}, 类型=${messages[0].photo ? 'photo' : messages[0].document ? 'document' : 'other'}`);
+                        if (messages.length > 1) {
+                            console.log(`最后一条消息: ID=${messages[messages.length-1].message_id}, 日期=${new Date(messages[messages.length-1].date * 1000).toISOString()}, 类型=${messages[messages.length-1].photo ? 'photo' : messages[messages.length-1].document ? 'document' : 'other'}`);
+                        }
+                    }
                     
                     // 处理历史消息
                     await processMessages(messages, photos);
@@ -422,6 +461,8 @@ async function tryGetChatHistory(photos, resolve, reject) {
             let hasMore = true;
             const limit = 100; // 每次获取100条消息
             
+            console.log(`开始使用getChatHistory方法获取频道历史消息...`);
+            
             while (hasMore) {
                 // 对于私人频道，使用正确的API参数
                 const historyOptions = {
@@ -438,6 +479,14 @@ async function tryGetChatHistory(photos, resolve, reject) {
                 if (historyResponse.ok && historyResponse.result && Array.isArray(historyResponse.result)) {
                     const messages = historyResponse.result;
                     console.log(`通过getChatHistory获取到 ${messages.length} 条历史消息 (offset: ${offset})`);
+                    
+                    // 打印前几条消息的信息用于调试
+                    if (messages.length > 0) {
+                        console.log(`第一条消息: ID=${messages[0].message_id}, 日期=${new Date(messages[0].date * 1000).toISOString()}, 类型=${messages[0].photo ? 'photo' : messages[0].document ? 'document' : 'other'}`);
+                        if (messages.length > 1) {
+                            console.log(`最后一条消息: ID=${messages[messages.length-1].message_id}, 日期=${new Date(messages[messages.length-1].date * 1000).toISOString()}, 类型=${messages[messages.length-1].photo ? 'photo' : messages[messages.length-1].document ? 'document' : 'other'}`);
+                        }
+                    }
                     
                     // 处理历史消息
                     await processMessages(messages, photos);
@@ -519,6 +568,7 @@ function makeRequest(options) {
 
 // 处理消息的辅助函数
 async function processMessages(messages, photos) {
+    console.log(`开始处理 ${messages.length} 条消息`);
     for (const message of messages) {
         // 处理照片消息
         if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
@@ -526,6 +576,8 @@ async function processMessages(messages, photos) {
             const photo = message.photo[message.photo.length - 1];
             if (photo && photo.file_id) {
                 const fileId = photo.file_id;
+                
+                console.log(`处理照片消息: ${fileId}, 消息ID: ${message.message_id}, 时间: ${new Date(message.date * 1000).toISOString()}`);
                 
                 // 获取文件路径
                 const fileResponse = await getTelegramFilePath(fileId);
@@ -541,9 +593,11 @@ async function processMessages(messages, photos) {
                         type: 'message_photo',
                         messageId: message.message_id,
                         from: message.from?.id || 'channel',
-                        date: message.date,
+                        date: message.date * 1000, // 转换为毫秒时间戳
                         caption: message.caption || ''
                     });
+                } else {
+                    console.log(`获取文件路径失败: ${fileId}, 错误: ${fileResponse.description || 'Unknown error'}`);
                 }
             }
         }
@@ -553,6 +607,8 @@ async function processMessages(messages, photos) {
             // 检查是否是图片类型
             if (message.document.mime_type.startsWith('image/')) {
                 const fileId = message.document.file_id;
+                
+                console.log(`处理文档图片: ${fileId}, 消息ID: ${message.message_id}, 时间: ${new Date(message.date * 1000).toISOString()}`);
                 
                 // 获取文件路径
                 const fileResponse = await getTelegramFilePath(fileId);
@@ -567,22 +623,25 @@ async function processMessages(messages, photos) {
                         type: 'document_image',
                         messageId: message.message_id,
                         from: message.from?.id || 'channel',
-                        date: message.date,
+                        date: message.date * 1000, // 转换为毫秒时间戳
                         caption: message.caption || '',
                         fileName: message.document.file_name || '',
                         mimeType: message.document.mime_type,
                         fileSize: message.document.file_size || 0
                     });
+                } else {
+                    console.log(`获取文件路径失败: ${fileId}, 错误: ${fileResponse.description || 'Unknown error'}`);
                 }
             }
         }
     }
+    console.log(`处理完成，共添加 ${photos.length} 张图片`);
 }
 
 // getUpdates的后备方案
 async function getUpdatesFallback(photos, resolve, reject) {
     try {
-        console.log('使用getUpdates方法获取消息更新...');
+        console.log('开始使用getUpdates方法获取消息更新...');
         
         const options = {
             hostname: 'api.telegram.org',
@@ -592,6 +651,7 @@ async function getUpdatesFallback(photos, resolve, reject) {
             timeout: 15000 // 15秒超时
         };
         
+        console.log('正在请求getUpdates API...');
         const req = https.request(options, (res) => {
             let data = '';
             res.on('data', (chunk) => {
@@ -599,38 +659,60 @@ async function getUpdatesFallback(photos, resolve, reject) {
             });
             res.on('end', async () => {
                 try {
+                    console.log(`getUpdates API响应状态码: ${res.statusCode}`);
                     const response = JSON.parse(data);
+                    
                     if (res.statusCode >= 200 && res.statusCode < 300) {
                         if (response.ok && response.result && Array.isArray(response.result)) {
-                            // 处理消息更新
-                            await processMessages(response.result.map(update => update.message || update.channel_post).filter(Boolean), photos);
+                            console.log(`getUpdates API返回成功，获取到 ${response.result.length} 条更新`);
                             
+                            // 打印前几条更新的信息用于调试
+                            if (response.result.length > 0) {
+                                console.log(`第一条更新: ID=${response.result[0].update_id}, 消息ID=${response.result[0].message ? response.result[0].message.message_id : response.result[0].channel_post ? response.result[0].channel_post.message_id : 'N/A'}, 日期=${response.result[0].message ? new Date(response.result[0].message.date * 1000).toISOString() : response.result[0].channel_post ? new Date(response.result[0].channel_post.date * 1000).toISOString() : 'N/A'}`);
+                                if (response.result.length > 1) {
+                                    console.log(`最后一条更新: ID=${response.result[response.result.length-1].update_id}, 消息ID=${response.result[response.result.length-1].message ? response.result[response.result.length-1].message.message_id : response.result[response.result.length-1].channel_post ? response.result[response.result.length-1].channel_post.message_id : 'N/A'}, 日期=${response.result[response.result.length-1].message ? new Date(response.result[response.result.length-1].message.date * 1000).toISOString() : response.result[response.result.length-1].channel_post ? new Date(response.result[response.result.length-1].channel_post.date * 1000).toISOString() : 'N/A'}`);
+                                }
+                            }
+                            
+                            // 处理消息更新
+                            const messages = response.result.map(update => update.message || update.channel_post).filter(Boolean);
+                            console.log(`从更新中提取出 ${messages.length} 条消息`);
+                            
+                            await processMessages(messages, photos);
                             console.log(`从getUpdates获取到 ${photos.length} 张图片`);
                             resolve(photos);
                         } else {
                             console.log('没有获取到消息更新');
+                            if (!response.ok) {
+                                console.error('getUpdates API返回错误:', response.description);
+                            }
                             resolve(photos);
                         }
                     } else {
+                        console.error(`getUpdates API HTTP错误: ${res.statusCode}`);
                         reject(new Error(`HTTP ${res.statusCode}: ${response.description || 'Unknown error'}`));
                     }
                 } catch (error) {
+                    console.error('解析getUpdates响应失败:', error.message);
                     reject(new Error(`Failed to parse getUpdates response: ${error.message}`));
                 }
             });
         });
         
         req.on('error', (error) => {
+            console.error('getUpdates请求失败:', error);
             reject(error);
         });
         
         req.on('timeout', () => {
+            console.error('getUpdates请求超时');
             req.destroy();
             reject(new Error('Request timeout'));
         });
         
         req.end();
     } catch (error) {
+        console.error('getUpdatesFallback函数执行失败:', error);
         reject(error);
     }
 }
