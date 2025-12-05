@@ -12,15 +12,15 @@ module.exports = async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     
     // 处理预检请求
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
     
-    // 只接受GET请求
-    if (req.method !== 'GET') {
+    // 只接受GET和POST请求
+    if (req.method !== 'GET' && req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
     
