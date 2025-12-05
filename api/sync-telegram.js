@@ -180,22 +180,18 @@ async function getUserProfilePhotos() {
                                     if (largestPhoto && largestPhoto.file_id) {
                                         const fileId = largestPhoto.file_id;
                                         
-                                        // 检查图片是否已存在于数据库中
-                                        const existingImage = await getImageByFileId(fileId);
-                                        if (!existingImage) {
-                                            // 获取文件路径
-                                            const fileResponse = await getTelegramFilePath(fileId);
-                                            if (fileResponse.ok && fileResponse.result.file_path) {
-                                                // 构建图片URL
-                                                const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
-                                                
-                                                // 添加到图片数组
-                                                photos.push({
-                                                    ...largestPhoto,
-                                                    url: imageUrl,
-                                                    type: 'user_profile'
-                                                });
-                                            }
+                                        // 获取文件路径
+                                        const fileResponse = await getTelegramFilePath(fileId);
+                                        if (fileResponse.ok && fileResponse.result.file_path) {
+                                            // 构建图片URL
+                                            const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
+                                            
+                                            // 添加到图片数组
+                                            photos.push({
+                                                ...largestPhoto,
+                                                url: imageUrl,
+                                                type: 'user_profile'
+                                            });
                                         }
                                     }
                                 }
@@ -480,27 +476,23 @@ async function processMessages(messages, photos) {
             if (photo && photo.file_id) {
                 const fileId = photo.file_id;
                 
-                // 检查图片是否已存在于数据库中
-                const existingImage = await getImageByFileId(fileId);
-                if (!existingImage) {
-                    // 获取文件路径
-                    const fileResponse = await getTelegramFilePath(fileId);
-                    if (fileResponse.ok && fileResponse.result.file_path) {
-                        // 构建图片URL
-                        const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
-                        
-                        // 添加到图片数组
-                        photos.push({
-                            file_id: fileId,
-                            ...photo,
-                            url: imageUrl,
-                            type: 'message_photo',
-                            messageId: message.message_id,
-                            from: message.from?.id || 'channel',
-                            date: message.date,
-                            caption: message.caption || ''
-                        });
-                    }
+                // 获取文件路径
+                const fileResponse = await getTelegramFilePath(fileId);
+                if (fileResponse.ok && fileResponse.result.file_path) {
+                    // 构建图片URL
+                    const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
+                    
+                    // 添加到图片数组
+                    photos.push({
+                        file_id: fileId,
+                        ...photo,
+                        url: imageUrl,
+                        type: 'message_photo',
+                        messageId: message.message_id,
+                        from: message.from?.id || 'channel',
+                        date: message.date,
+                        caption: message.caption || ''
+                    });
                 }
             }
         }
@@ -511,29 +503,25 @@ async function processMessages(messages, photos) {
             if (message.document.mime_type.startsWith('image/')) {
                 const fileId = message.document.file_id;
                 
-                // 检查图片是否已存在于数据库中
-                const existingImage = await getImageByFileId(fileId);
-                if (!existingImage) {
-                    // 获取文件路径
-                    const fileResponse = await getTelegramFilePath(fileId);
-                    if (fileResponse.ok && fileResponse.result.file_path) {
-                        // 构建图片URL
-                        const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
-                        
-                        // 添加到图片数组
-                        photos.push({
-                            file_id: fileId,
-                            url: imageUrl,
-                            type: 'document_image',
-                            messageId: message.message_id,
-                            from: message.from?.id || 'channel',
-                            date: message.date,
-                            caption: message.caption || '',
-                            fileName: message.document.file_name || '',
-                            mimeType: message.document.mime_type,
-                            fileSize: message.document.file_size || 0
-                        });
-                    }
+                // 获取文件路径
+                const fileResponse = await getTelegramFilePath(fileId);
+                if (fileResponse.ok && fileResponse.result.file_path) {
+                    // 构建图片URL
+                    const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
+                    
+                    // 添加到图片数组
+                    photos.push({
+                        file_id: fileId,
+                        url: imageUrl,
+                        type: 'document_image',
+                        messageId: message.message_id,
+                        from: message.from?.id || 'channel',
+                        date: message.date,
+                        caption: message.caption || '',
+                        fileName: message.document.file_name || '',
+                        mimeType: message.document.mime_type,
+                        fileSize: message.document.file_size || 0
+                    });
                 }
             }
         }
