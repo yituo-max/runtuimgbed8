@@ -215,6 +215,7 @@ module.exports = async (req, res) => {
                 category: category
             };
             
+            console.log('上传图片信息:', JSON.stringify(imageInfo, null, 2));
             savedImage = addImage(imageInfo);
         }
         

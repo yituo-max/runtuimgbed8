@@ -89,7 +89,9 @@ module.exports = async (req, res) => {
         for (const photo of allPhotos) {
             try {
                 // 检查图片是否已经存在于数据库中
+                console.log(`检查图片是否存在: ${photo.file_id}`);
                 const existingImage = await getImageByFileId(photo.file_id);
+                console.log(`检查结果: ${existingImage ? '存在' : '不存在'}`);
                 
                 if (!existingImage) {
                     // 构建图片信息（photo对象已经包含url）
@@ -97,7 +99,7 @@ module.exports = async (req, res) => {
                         filename: `telegram_${photo.file_id}`,
                         url: photo.url,
                         size: photo.file_size || photo.fileSize || 0,
-                        fileId: photo.file_id,
+                        fileId: photo.file_id, // 确保使用小写的fileId，与上传时保持一致
                         category: photo.category || 'general',
                         type: photo.type,
                         folderId: null, // 新图片默认保存到根目录

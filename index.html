@@ -2497,9 +2497,11 @@
                                                 size: file.size,
                                                 type: file.type,
                                                 category: 'other',
-                                                uploadTime: new Date().toISOString()
+                                                uploadTime: new Date().toISOString(),
+                                                fileId: data.fileId // 确保保存fileId
                                             };
                                             
+                                            console.log('前端保存的图片数据:', JSON.stringify(imageData, null, 2));
                                             imageGallery.unshift(imageData);
                                             saveDataToStorage();
                                         }

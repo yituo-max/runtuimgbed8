@@ -90,13 +90,17 @@ async function getImage(id) {
 // 根据fileId获取图片
 async function getImageByFileId(fileId) {
   try {
+    console.log(`getImageByFileId: 查找fileId=${fileId}`);
     // 获取所有图片ID
     const imageIds = await kv.zrange('imgbed:images', 0, -1);
     
     if (!imageIds || imageIds.length === 0) {
+      console.log('getImageByFileId: 没有找到任何图片ID');
       return null;
     }
 
+    console.log(`getImageByFileId: 找到${imageIds.length}个图片ID`);
+    
     // 批量获取图片数据
     const imageKeys = imageIds.map(id => `${IMAGE_KEY_PREFIX}${id}`);
     const imagesData = await kv.mget(imageKeys);
@@ -105,12 +109,15 @@ async function getImageByFileId(fileId) {
     for (const imgData of imagesData) {
       if (imgData) {
         const image = typeof imgData === 'string' ? JSON.parse(imgData) : imgData;
+        console.log(`getImageByFileId: 比较图片fileId=${image.fileId} 与 查找fileId=${fileId}`);
         if (image.fileId === fileId) {
+          console.log(`getImageByFileId: 找到匹配的图片`);
           return image;
         }
       }
     }
     
+    console.log(`getImageByFileId: 未找到匹配的图片`);
     return null;
   } catch (error) {
     console.error('Error getting image by fileId:', error);
