@@ -2010,7 +2010,7 @@
                         
                         // 循环获取所有页面的图片
                         while (hasMoreImages) {
-                            const apiUrl = `/api/images-list?t=${timestamp}&limit=${limit}&page=${page}`;
+                            const apiUrl = `/api/images?t=${timestamp}&limit=${limit}&page=${page}`;
                             
                             // 调用API获取图片列表
                             const response = await fetch(apiUrl);
