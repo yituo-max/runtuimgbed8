@@ -190,15 +190,14 @@ async function getUserProfilePhotos() {
 
 // 获取聊天消息中的图片
 async function getChatPhotos() {
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => {
         try {
             const photos = [];
             let offset = 0;
             const limit = 100;
-            let hasMoreMessages = true;
             
-            // 循环获取所有历史消息
-            while (hasMoreMessages) {
+            // 递归函数，用于获取更多消息
+            function getMoreMessages(offset, limit, photos, resolve, reject) {
                 console.log(`获取历史消息，偏移量: ${offset}`);
                 
                 const options = {
@@ -287,156 +286,40 @@ async function getChatPhotos() {
                                     
                                     // 检查是否还有更多消息
                                     if (response.result.messages.length < limit) {
-                                        hasMoreMessages = false;
                                         console.log('已获取所有历史消息');
                                         resolve(photos);
                                     } else {
                                         // 更新偏移量，继续获取下一批消息
                                         offset += limit;
-                                        // 递归调用以获取下一批消息
                                         getMoreMessages(offset, limit, photos, resolve, reject);
                                     }
                                 } else {
-                                    hasMoreMessages = false;
                                     console.log('没有更多历史消息');
                                     resolve(photos);
                                 }
                             } else {
-                                hasMoreMessages = false;
                                 reject(new Error(`HTTP ${res.statusCode}: ${response.description || 'Unknown error'}`));
                             }
                         } catch (error) {
-                            hasMoreMessages = false;
                             reject(new Error(`Failed to parse getChatHistory response: ${error.message}`));
                         }
                     });
                 });
                 
                 req.on('error', (error) => {
-                    hasMoreMessages = false;
                     reject(error);
                 });
                 
                 req.on('timeout', () => {
                     req.destroy();
-                    hasMoreMessages = false;
                     reject(new Error('Request timeout'));
                 });
                 
                 req.end();
-                
-                // 等待当前批次完成后再继续
-                break;
             }
             
-            // 递归函数，用于获取更多消息
-            function getMoreMessages(offset, limit, photos, resolve, reject) {
-                const options = {
-                    hostname: 'api.telegram.org',
-                    port: 443,
-                    path: `/bot${TELEGRAM_BOT_TOKEN}/getChatHistory?chat_id=${TELEGRAM_CHAT_ID}&limit=${limit}&offset=${offset}`,
-                    method: 'GET',
-                    timeout: 15000
-                };
-                
-                const req = https.request(options, (res) => {
-                    let data = '';
-                    res.on('data', (chunk) => {
-                        data += chunk;
-                    });
-                    res.on('end', async () => {
-                        try {
-                            const response = JSON.parse(data);
-                            if (res.statusCode >= 200 && res.statusCode < 300) {
-                                if (response.ok && response.result && response.result.messages) {
-                                    // 处理当前批次的消息
-                                    for (const message of response.result.messages) {
-                                        if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
-                                            const photo = message.photo[message.photo.length - 1];
-                                            if (photo && photo.file_id) {
-                                                const fileId = photo.file_id;
-                                                
-                                                const existingImage = await getImageByFileId(fileId);
-                                                if (!existingImage) {
-                                                    const fileResponse = await getTelegramFilePath(fileId);
-                                                    if (fileResponse.ok && fileResponse.result.file_path) {
-                                                        const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
-                                                        
-                                                        photos.push({
-                                                            ...photo,
-                                                            url: imageUrl,
-                                                            type: 'message_photo',
-                                                            messageId: message.message_id,
-                                                            from: message.from?.id || 'unknown',
-                                                            date: message.date,
-                                                            caption: message.caption || ''
-                                                        });
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        
-                                        if (message.document && message.document.file_id && message.document.mime_type) {
-                                            if (message.document.mime_type.startsWith('image/')) {
-                                                const fileId = message.document.file_id;
-                                                
-                                                const existingImage = await getImageByFileId(fileId);
-                                                if (!existingImage) {
-                                                    const fileResponse = await getTelegramFilePath(fileId);
-                                                    if (fileResponse.ok && fileResponse.result.file_path) {
-                                                        const imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileResponse.result.file_path}`;
-                                                        
-                                                        photos.push({
-                                                            fileId: fileId,
-                                                            url: imageUrl,
-                                                            type: 'document_image',
-                                                            messageId: message.message_id,
-                                                            from: message.from?.id || 'unknown',
-                                                            date: message.date,
-                                                            caption: message.caption || '',
-                                                            fileName: message.document.file_name || '',
-                                                            mimeType: message.document.mime_type,
-                                                            fileSize: message.document.file_size || 0
-                                                        });
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    
-                                    // 检查是否还有更多消息
-                                    if (response.result.messages.length < limit) {
-                                        console.log('已获取所有历史消息');
-                                        resolve(photos);
-                                    } else {
-                                        // 更新偏移量，继续获取下一批消息
-                                        offset += limit;
-                                        getMoreMessages(offset, limit, photos, resolve, reject);
-                                    }
-                                } else {
-                                    console.log('没有更多历史消息');
-                                    resolve(photos);
-                                }
-                            } else {
-                                reject(new Error(`HTTP ${res.statusCode}: ${response.description || 'Unknown error'}`));
-                            }
-                        } catch (error) {
-                            reject(new Error(`Failed to parse getChatHistory response: ${error.message}`));
-                        }
-                    });
-                });
-                
-                req.on('error', (error) => {
-                    reject(error);
-                });
-                
-                req.on('timeout', () => {
-                    req.destroy();
-                    reject(new Error('Request timeout'));
-                });
-                
-                req.end();
-            }
+            // 启动递归获取消息
+            getMoreMessages(offset, limit, photos, resolve, reject);
         } catch (error) {
             reject(error);
         }
