@@ -212,7 +212,8 @@ module.exports = async (req, res) => {
                 url: imageUrl,
                 size: file.file_size,
                 fileId: fileId,
-                category: category
+                category: category,
+                uploadTime: new Date().toISOString() // 添加上传时间，用于同步时比较
             };
             
             console.log('上传图片信息:', JSON.stringify(imageInfo, null, 2));

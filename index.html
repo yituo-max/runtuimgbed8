@@ -2047,29 +2047,8 @@
                             }
                         }
                         
-                        // 合并本地和服务器数据，而不是完全替换
-                        // 创建一个Map来存储服务器图片，以fileId为键
-                        const serverImagesMap = new Map();
-                        allImages.forEach(img => {
-                            if (img.fileId) {
-                                serverImagesMap.set(img.fileId, img);
-                            }
-                        });
-                        
-                        // 保留本地有但服务器没有的图片（可能是刚刚上传但还未同步的）
-                        const mergedImages = [...allImages]; // 先从服务器图片开始
-                        
-                        // 检查本地图片是否在服务器中存在
-                        imageGallery.forEach(localImg => {
-                            if (localImg.fileId && !serverImagesMap.has(localImg.fileId)) {
-                                // 本地有但服务器没有的图片，添加到合并列表中
-                                mergedImages.push(localImg);
-                                console.log(`保留本地图片: ${localImg.fileId}`);
-                            }
-                        });
-                        
-                        // 更新本地数据
-                        imageGallery = mergedImages;
+                        // 更新本地数据（策略2：以服务器最新数据为准）
+                        imageGallery = allImages;
                         
                         // 如果服务器有更新的分类，也更新分类数据
                         if (lastResponseData && lastResponseData.categories && lastResponseData.categories.length > 0) {

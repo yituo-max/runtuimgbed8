@@ -85,6 +85,7 @@ module.exports = async (req, res) => {
         // 同步到数据库
         let syncedCount = 0;
         let skippedCount = 0;
+        let updatedCount = 0;
         
         for (const photo of allPhotos) {
             try {
@@ -116,9 +117,37 @@ module.exports = async (req, res) => {
                     syncedCount++;
                     console.log(`已同步图片: ${photo.file_id} (${photo.type}) 到数据库`);
                 } else {
-                    // 图片已存在，始终保留原有的文件夹信息
-                    console.log(`跳过已存在的图片: ${photo.file_id}，保留在原文件夹中`);
-                    skippedCount++;
+                    // 图片已存在，比较上传时间（策略2：以最新数据为准）
+                    const existingTime = new Date(existingImage.uploadDate || existingImage.uploadTime || 0).getTime();
+                    const newTime = new Date(photo.date || Date.now()).getTime();
+                    
+                    if (newTime > existingTime) {
+                        // 新图片更新，更新数据库中的图片
+                        const updatedImageInfo = {
+                            filename: `telegram_${photo.file_id}`,
+                            url: photo.url,
+                            size: photo.file_size || photo.fileSize || 0,
+                            fileId: photo.file_id,
+                            category: photo.category || existingImage.category || 'general', // 保留原有分类或使用新分类
+                            type: photo.type,
+                            folderId: existingImage.folderId, // 保留原有的文件夹信息
+                            metadata: {
+                                messageId: photo.messageId,
+                                from: photo.from,
+                                date: photo.date,
+                                caption: photo.caption,
+                                fileName: photo.fileName
+                            }
+                        };
+                        
+                        await updateImage(existingImage.id, updatedImageInfo);
+                        updatedCount++;
+                        console.log(`更新图片: ${photo.file_id} (保留在原文件夹中)`);
+                    } else {
+                        // 旧图片，跳过
+                        skippedCount++;
+                        console.log(`跳过旧图片: ${photo.file_id}`);
+                    }
                 }
             } catch (error) {
                 console.error(`同步图片 ${photo.file_id} 时出错:`, error);
@@ -127,8 +156,9 @@ module.exports = async (req, res) => {
         
         return res.status(200).json({
             success: true,
-            message: `同步完成，新增 ${syncedCount} 张图片到根目录，跳过 ${skippedCount} 张已存在的图片（保留在原文件夹中）`,
+            message: `同步完成，新增 ${syncedCount} 张图片到根目录，更新 ${updatedCount} 张图片，跳过 ${skippedCount} 张旧图片（保留在原文件夹中）`,
             syncedCount,
+            updatedCount,
             skippedCount,
             totalPhotos: allPhotos.length,
             profilePhotosCount: profilePhotos.length,
