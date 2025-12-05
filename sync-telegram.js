@@ -321,137 +321,156 @@ async function getChannelHistoryMessages(photos, resolve, reject) {
 
 // 尝试使用searchChatHistory方法
 async function trySearchChatHistory(photos, resolve, reject) {
-    return new Promise((res, rej) => {
-        const searchOptions = {
-            hostname: 'api.telegram.org',
-            port: 443,
-            path: `/bot${TELEGRAM_BOT_TOKEN}/searchChatHistory?chat_id=${TELEGRAM_CHAT_ID}&query=""&limit=100`,
-            method: 'GET',
-            timeout: 15000 // 15秒超时
-        };
-        
-        const searchReq = https.request(searchOptions, (searchRes) => {
-            let searchData = '';
-            searchRes.on('data', (chunk) => {
-                searchData += chunk;
-            });
-            searchRes.on('end', async () => {
-                try {
-                    const searchResponse = JSON.parse(searchData);
-                    if (searchRes.statusCode >= 200 && searchRes.statusCode < 300) {
-                        if (searchResponse.ok && searchResponse.result && searchResponse.result.messages) {
-                            console.log(`成功通过searchChatHistory获取到 ${searchResponse.result.messages.length} 条历史消息`);
-                            
-                            // 处理历史消息
-                            await processMessages(searchResponse.result.messages, photos);
-                            
-                            // 如果还有更多消息，尝试获取更多
-                            if (searchResponse.result.total_count > searchResponse.result.messages.length) {
-                                console.log(`还有更多消息，总数: ${searchResponse.result.total_count}`);
-                                // 这里可以实现分页获取更多消息的逻辑
-                            }
-                            
-                            console.log(`从历史消息中获取到 ${photos.length} 张图片`);
-                            resolve(photos);
-                            res();
-                        } else {
-                            console.log('searchChatHistory方法返回空结果');
-                            rej(new Error('searchChatHistory返回空结果'));
-                        }
+    return new Promise(async (res, rej) => {
+        try {
+            let offset = 0;
+            let totalFetched = 0;
+            let hasMore = true;
+            const limit = 100; // 每次获取100条消息
+            
+            while (hasMore) {
+                const searchOptions = {
+                    hostname: 'api.telegram.org',
+                    port: 443,
+                    path: `/bot${TELEGRAM_BOT_TOKEN}/searchChatHistory?chat_id=${TELEGRAM_CHAT_ID}&query=""&limit=${limit}&offset=${offset}`,
+                    method: 'GET',
+                    timeout: 15000 // 15秒超时
+                };
+                
+                const searchResponse = await makeRequest(searchOptions);
+                
+                if (searchResponse.ok && searchResponse.result && searchResponse.result.messages) {
+                    const messages = searchResponse.result.messages;
+                    console.log(`通过searchChatHistory获取到 ${messages.length} 条历史消息 (offset: ${offset})`);
+                    
+                    // 处理历史消息
+                    await processMessages(messages, photos);
+                    
+                    totalFetched += messages.length;
+                    
+                    // 检查是否还有更多消息
+                    if (messages.length < limit) {
+                        hasMore = false;
                     } else {
-                        console.error(`searchChatHistory HTTP错误: ${searchRes.statusCode}`);
-                        rej(new Error(`searchChatHistory HTTP错误: ${searchRes.statusCode}`));
+                        offset += limit;
+                        // 避免无限循环，设置最大获取数量
+                        if (totalFetched >= 1000) {
+                            console.log('已达到最大获取数量限制 (1000条消息)');
+                            hasMore = false;
+                        }
                     }
-                } catch (error) {
-                    console.error('解析searchChatHistory响应失败:', error.message);
-                    rej(error);
+                } else {
+                    hasMore = false;
+                    if (!searchResponse.ok) {
+                        console.error('searchChatHistory方法失败:', searchResponse.description);
+                        rej(new Error(searchResponse.description));
+                        return;
+                    }
                 }
-            });
-        });
-        
-        searchReq.on('error', (error) => {
+            }
+            
+            console.log(`searchChatHistory总共获取了 ${totalFetched} 条历史消息，其中包含 ${photos.length} 张图片`);
+            resolve(photos);
+            res();
+        } catch (error) {
             console.error('searchChatHistory请求失败:', error);
             rej(error);
-        });
-        
-        searchReq.on('timeout', () => {
-            searchReq.destroy();
-            console.error('searchChatHistory请求超时');
-            rej(new Error('searchChatHistory请求超时'));
-        });
-        
-        searchReq.end();
+        }
     });
 }
 
 // 尝试使用getChatHistory方法
 async function tryGetChatHistory(photos, resolve, reject) {
-    return new Promise((res, rej) => {
-        // 使用getChatHistory方法获取历史消息
-        const historyOptions = {
-            hostname: 'api.telegram.org',
-            port: 443,
-            path: `/bot${TELEGRAM_BOT_TOKEN}/getChatHistory?chat_id=${TELEGRAM_CHAT_ID}&limit=100`,
-            method: 'GET',
-            timeout: 15000 // 15秒超时
-        };
-        
-        const historyReq = https.request(historyOptions, (historyRes) => {
-            let historyData = '';
-            historyRes.on('data', (chunk) => {
-                historyData += chunk;
-            });
-            historyRes.on('end', async () => {
-                try {
-                    const historyResponse = JSON.parse(historyData);
-                    if (historyRes.statusCode >= 200 && historyRes.statusCode < 300) {
-                        if (historyResponse.ok && historyResponse.result && historyResponse.result.messages) {
-                            console.log(`成功通过getChatHistory获取到 ${historyResponse.result.messages.length} 条历史消息`);
-                            
-                            // 处理历史消息
-                            await processMessages(historyResponse.result.messages, photos);
-                            
-                            // 如果还有更多消息，尝试获取更多
-                            if (historyResponse.result.total_count > historyResponse.result.messages.length) {
-                                console.log(`还有更多消息，总数: ${historyResponse.result.total_count}`);
-                                // 这里可以实现分页获取更多消息的逻辑
-                            }
-                            
-                            console.log(`从历史消息中获取到 ${photos.length} 张图片`);
-                            resolve(photos);
-                            res();
-                        } else {
-                            console.log('getChatHistory方法返回空结果，尝试使用getUpdates作为后备方案');
-                            await getUpdatesFallback(photos, resolve, reject);
-                            res();
-                        }
+    return new Promise(async (res, rej) => {
+        try {
+            let offset = 0;
+            let totalFetched = 0;
+            let hasMore = true;
+            const limit = 100; // 每次获取100条消息
+            
+            while (hasMore) {
+                const historyOptions = {
+                    hostname: 'api.telegram.org',
+                    port: 443,
+                    path: `/bot${TELEGRAM_BOT_TOKEN}/getChatHistory?chat_id=${TELEGRAM_CHAT_ID}&limit=${limit}&offset=${offset}`,
+                    method: 'GET',
+                    timeout: 15000 // 15秒超时
+                };
+                
+                const historyResponse = await makeRequest(historyOptions);
+                
+                if (historyResponse.ok && historyResponse.result && historyResponse.result.messages) {
+                    const messages = historyResponse.result.messages;
+                    console.log(`通过getChatHistory获取到 ${messages.length} 条历史消息 (offset: ${offset})`);
+                    
+                    // 处理历史消息
+                    await processMessages(messages, photos);
+                    
+                    totalFetched += messages.length;
+                    
+                    // 检查是否还有更多消息
+                    if (messages.length < limit) {
+                        hasMore = false;
                     } else {
-                        console.error(`getChatHistory HTTP错误: ${historyRes.statusCode}`);
+                        offset += limit;
+                        // 避免无限循环，设置最大获取数量
+                        if (totalFetched >= 1000) {
+                            console.log('已达到最大获取数量限制 (1000条消息)');
+                            hasMore = false;
+                        }
+                    }
+                } else {
+                    hasMore = false;
+                    if (!historyResponse.ok) {
+                        console.error('getChatHistory方法失败:', historyResponse.description);
+                        // 如果getChatHistory失败，尝试使用getUpdates作为后备方案
                         await getUpdatesFallback(photos, resolve, reject);
                         res();
+                        return;
                     }
+                }
+            }
+            
+            console.log(`getChatHistory总共获取了 ${totalFetched} 条历史消息，其中包含 ${photos.length} 张图片`);
+            resolve(photos);
+            res();
+        } catch (error) {
+            console.error('getChatHistory请求失败:', error);
+            // 如果getChatHistory失败，尝试使用getUpdates作为后备方案
+            await getUpdatesFallback(photos, resolve, reject);
+            res();
+        }
+    });
+}
+
+// 辅助函数：发送HTTP请求
+function makeRequest(options) {
+    return new Promise((resolve, reject) => {
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            res.on('end', () => {
+                try {
+                    const response = JSON.parse(data);
+                    resolve(response);
                 } catch (error) {
-                    console.error('解析getChatHistory响应失败:', error.message);
-                    await getUpdatesFallback(photos, resolve, reject);
-                    res();
+                    reject(new Error(`Failed to parse response: ${error.message}`));
                 }
             });
         });
         
-        historyReq.on('error', (error) => {
-            console.error('getChatHistory请求失败:', error);
-            getUpdatesFallback(photos, resolve, reject);
-            res();
+        req.on('error', (error) => {
+            reject(error);
         });
         
-        historyReq.on('timeout', () => {
-            historyReq.destroy();
-            console.error('getChatHistory请求超时');
-            getUpdatesFallback(photos, resolve, reject);
-            res();
+        req.on('timeout', () => {
+            req.destroy();
+            reject(new Error('Request timeout'));
         });
         
-        historyReq.end();
+        req.end();
     });
 }
 
