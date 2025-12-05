@@ -1,6 +1,6 @@
 // 从Telegram同步所有图片到数据库的API端点
 const https = require('https');
-const { addImage, getImageByFileId } = require('./kv-database');
+const { addImage, getImageByFileId, updateImage } = require('./kv-database');
 const { verifyAdminToken } = require('./auth-middleware');
 
 // 从环境变量获取配置
@@ -57,6 +57,8 @@ module.exports = async (req, res) => {
     try {
         console.log('开始从Telegram同步图片...');
         
+
+        
         // 检查是否是频道（频道ID通常是负数）
         const isChannel = TELEGRAM_CHAT_ID.startsWith('-');
         
@@ -108,7 +110,7 @@ module.exports = async (req, res) => {
                         fileId: photo.file_id,
                         category: category,
                         type: photo.type,
-                        folderId: null, // 放在根目录
+                        folderId: null, // 新图片默认放在根目录
                         metadata: {
                             messageId: photo.messageId,
                             from: photo.from,
@@ -122,7 +124,7 @@ module.exports = async (req, res) => {
                     syncedCount++;
                     console.log(`已同步图片: ${photo.file_id} (${photo.type}) 到根目录`);
                 } else {
-                    // 图片已存在，保留原有文件夹分类
+                    // 图片已存在，始终保留原有的文件夹信息
                     console.log(`跳过已存在的图片: ${photo.file_id}，保留在原文件夹中`);
                     skippedCount++;
                 }
