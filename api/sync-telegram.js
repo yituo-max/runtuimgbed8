@@ -334,12 +334,13 @@ async function getChatPhotos() {
 // 获取频道历史消息的辅助函数
 async function getChannelHistoryMessages(photos, resolve, reject) {
     try {
-        // 首先尝试使用searchChatHistory方法（需要bot是频道管理员）
-        await trySearchChatHistory(photos, resolve, reject);
-    } catch (error) {
-        console.error('searchChatHistory方法失败，尝试getChatHistory方法:', error.message);
-        // 如果searchChatHistory失败，尝试getChatHistory方法
+        // 对于私人频道，优先使用getChatHistory方法
+        console.log('尝试使用getChatHistory方法获取私人频道历史消息...');
         await tryGetChatHistory(photos, resolve, reject);
+    } catch (error) {
+        console.error('getChatHistory方法失败，尝试searchChatHistory方法:', error.message);
+        // 如果getChatHistory失败，尝试searchChatHistory方法
+        await trySearchChatHistory(photos, resolve, reject);
     }
 }
 
@@ -347,12 +348,13 @@ async function getChannelHistoryMessages(photos, resolve, reject) {
 async function trySearchChatHistory(photos, resolve, reject) {
     return new Promise(async (res, rej) => {
         try {
-            let offset = 0;
+            let offset = 0; // 从0开始，获取最新的消息
             let totalFetched = 0;
             let hasMore = true;
             const limit = 100; // 每次获取100条消息
             
             while (hasMore) {
+                // 对于私人频道，使用正确的API参数
                 const searchOptions = {
                     hostname: 'api.telegram.org',
                     port: 443,
@@ -361,6 +363,7 @@ async function trySearchChatHistory(photos, resolve, reject) {
                     timeout: 15000 // 15秒超时
                 };
                 
+                console.log(`正在搜索频道历史消息，offset: ${offset}, limit: ${limit}`);
                 const searchResponse = await makeRequest(searchOptions);
                 
                 if (searchResponse.ok && searchResponse.result && searchResponse.result.messages) {
@@ -375,8 +378,15 @@ async function trySearchChatHistory(photos, resolve, reject) {
                     // 检查是否还有更多消息
                     if (messages.length < limit) {
                         hasMore = false;
+                        console.log('已获取所有搜索结果');
                     } else {
-                        offset += limit;
+                        // 使用最后一条消息的ID作为下一次请求的offset
+                        if (messages.length > 0) {
+                            offset = messages[messages.length - 1].message_id;
+                        } else {
+                            offset += limit;
+                        }
+                        
                         // 避免无限循环，设置最大获取数量
                         if (totalFetched >= 1000) {
                             console.log('已达到最大获取数量限制 (1000条消息)');
@@ -407,12 +417,13 @@ async function trySearchChatHistory(photos, resolve, reject) {
 async function tryGetChatHistory(photos, resolve, reject) {
     return new Promise(async (res, rej) => {
         try {
-            let offset = 0;
+            let offset = 0; // 从0开始，获取最新的消息
             let totalFetched = 0;
             let hasMore = true;
             const limit = 100; // 每次获取100条消息
             
             while (hasMore) {
+                // 对于私人频道，使用正确的API参数
                 const historyOptions = {
                     hostname: 'api.telegram.org',
                     port: 443,
@@ -421,10 +432,11 @@ async function tryGetChatHistory(photos, resolve, reject) {
                     timeout: 15000 // 15秒超时
                 };
                 
+                console.log(`正在获取频道历史消息，offset: ${offset}, limit: ${limit}`);
                 const historyResponse = await makeRequest(historyOptions);
                 
-                if (historyResponse.ok && historyResponse.result && historyResponse.result.messages) {
-                    const messages = historyResponse.result.messages;
+                if (historyResponse.ok && historyResponse.result && Array.isArray(historyResponse.result)) {
+                    const messages = historyResponse.result;
                     console.log(`通过getChatHistory获取到 ${messages.length} 条历史消息 (offset: ${offset})`);
                     
                     // 处理历史消息
@@ -435,8 +447,15 @@ async function tryGetChatHistory(photos, resolve, reject) {
                     // 检查是否还有更多消息
                     if (messages.length < limit) {
                         hasMore = false;
+                        console.log('已获取所有历史消息');
                     } else {
-                        offset += limit;
+                        // 使用最后一条消息的ID作为下一次请求的offset
+                        if (messages.length > 0) {
+                            offset = messages[messages.length - 1].message_id;
+                        } else {
+                            offset += limit;
+                        }
+                        
                         // 避免无限循环，设置最大获取数量
                         if (totalFetched >= 1000) {
                             console.log('已达到最大获取数量限制 (1000条消息)');

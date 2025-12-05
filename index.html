@@ -2047,8 +2047,26 @@
                             }
                         }
                         
-                        // 更新本地数据（策略2：以服务器最新数据为准）
-                        imageGallery = allImages;
+                        // 策略2改进：保留本地新上传但还未同步到服务器的图片
+                        // 创建一个映射，以fileId为键，便于快速查找
+                        const serverImagesMap = new Map();
+                        allImages.forEach(image => {
+                            if (image.fileId) {
+                                serverImagesMap.set(image.fileId, image);
+                            }
+                        });
+                        
+                        // 保留本地有但服务器没有的图片（可能是刚刚上传的）
+                        const localOnlyImages = imageGallery.filter(localImage => {
+                            // 如果没有fileId，则保留（可能是旧数据）
+                            if (!localImage.fileId) return true;
+                            
+                            // 如果服务器没有这个fileId，则保留（可能是刚刚上传的）
+                            return !serverImagesMap.has(localImage.fileId);
+                        });
+                        
+                        // 合并服务器图片和本地独有的图片
+                        imageGallery = [...allImages, ...localOnlyImages];
                         
                         // 如果服务器有更新的分类，也更新分类数据
                         if (lastResponseData && lastResponseData.categories && lastResponseData.categories.length > 0) {
