@@ -92,7 +92,7 @@ module.exports = async (req, res) => {
         
         return res.status(200).json({
             success: true,
-            message: `同步完成，新增 ${syncedCount} 张图片到根目录，更新 ${updatedCount} 张图片，跳过 ${skippedCount} 张旧图片（保留在原文件夹中）`,
+            message: `同步完成，新增 ${syncedCount} 张图片到根目录，跳过 ${skippedCount} 张已存在的图片`,
             syncedCount,
             updatedCount,
             skippedCount,
@@ -113,10 +113,10 @@ module.exports = async (req, res) => {
 // 同步图片到数据库
 async function syncPhotosToDatabase(photos) {
     let syncedCount = 0;
-    let updatedCount = 0;
     let skippedCount = 0;
     
     console.log(`开始同步 ${photos.length} 张图片到数据库...`);
+    console.log('同步策略：只添加新图片，已存在的图片跳过不更新');
     
     for (const photo of photos) {
         try {
@@ -126,7 +126,7 @@ async function syncPhotosToDatabase(photos) {
             console.log(`检查结果: ${existingImage ? '存在' : '不存在'}`);
             
             if (!existingImage) {
-                // 构建图片信息（photo对象已经包含url）
+                // 图片不存在，直接添加到数据库
                 const imageInfo = {
                     filename: `telegram_${photo.file_id}`,
                     url: photo.url,
@@ -148,47 +148,17 @@ async function syncPhotosToDatabase(photos) {
                 syncedCount++;
                 console.log(`已同步图片: ${photo.file_id} (${photo.type}) 到数据库`);
             } else {
-                // 图片已存在，比较消息时间戳（策略2：以最新数据为准）
-                const existingTime = new Date(existingImage.uploadDate || existingImage.uploadTime || 0).getTime();
-                const newTime = new Date(photo.date || Date.now()).getTime();
-                
-                console.log(`比较时间戳: ${photo.file_id} - 现有: ${existingTime} (${new Date(existingTime).toISOString()}), 新: ${newTime} (${new Date(newTime).toISOString()})`);
-                
-                if (newTime > existingTime) {
-                    // 新图片更新，更新数据库中的图片
-                    const updatedImageInfo = {
-                        filename: `telegram_${photo.file_id}`,
-                        url: photo.url,
-                        size: photo.file_size || photo.fileSize || 0,
-                        fileId: photo.file_id,
-                        category: photo.category || existingImage.category || 'general', // 保留原有分类或使用新分类
-                        type: photo.type,
-                        folderId: existingImage.folderId, // 保留原有的文件夹信息
-                        metadata: {
-                            messageId: photo.messageId,
-                            from: photo.from,
-                            date: photo.date,
-                            caption: photo.caption,
-                            fileName: photo.fileName
-                        }
-                    };
-                    
-                    await updateImage(existingImage.id, updatedImageInfo);
-                    updatedCount++;
-                    console.log(`更新图片: ${photo.file_id} (保留在原文件夹中)`);
-                } else {
-                    // 旧图片，跳过
-                    skippedCount++;
-                    console.log(`跳过旧图片: ${photo.file_id}`);
-                }
+                // 图片已存在，跳过不更新
+                skippedCount++;
+                console.log(`跳过已存在的图片: ${photo.file_id}`);
             }
         } catch (error) {
             console.error(`同步图片 ${photo.file_id} 时出错:`, error);
         }
     }
     
-    console.log(`同步完成，共处理 ${photos.length} 张图片，新增 ${syncedCount} 张，更新 ${updatedCount} 张，跳过 ${skippedCount} 张`);
-    return { syncedCount, updatedCount, skippedCount };
+    console.log(`同步完成，共处理 ${photos.length} 张图片，新增 ${syncedCount} 张，跳过 ${skippedCount} 张`);
+    return { syncedCount, updatedCount: 0, skippedCount };
 }
 
 // 获取用户个人资料照片
