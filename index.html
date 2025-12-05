@@ -3065,7 +3065,7 @@
                             saveDataToStorage();
                             
                             // 同步到服务器
-                            fetch(`/api/images/${image.id}`, {
+                            fetch(`/api/image?id=${image.id}`, {
                                 method: 'PUT',
                                 headers: {
                                     'Content-Type': 'application/json',
