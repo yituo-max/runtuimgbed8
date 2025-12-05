@@ -100,7 +100,7 @@ module.exports = async (req, res) => {
         
         // 处理PUT请求 - 更新图片信息
         if (req.method === 'PUT') {
-            const { id, url, filename, category, description } = req.body;
+            const { id, url, filename, category, description, folderId } = req.body;
             
             if (!id) {
                 return res.status(400).json({ error: 'Image ID is required' });
@@ -110,7 +110,8 @@ module.exports = async (req, res) => {
                 url,
                 filename,
                 category,
-                description
+                description,
+                folderId
             });
             
             if (!updatedImage) {

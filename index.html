@@ -3058,10 +3058,50 @@
                         console.log('Confirm move clicked, selectedFolderId:', selectedFolderId); // 调试日志
                         const image = imageGallery.find(img => img.id === imageId);
                         if (image) {
+                            const oldFolderId = image.folderId;
                             image.folderId = selectedFolderId === '' ? null : selectedFolderId;
+                            
+                            // 先保存到本地存储
                             saveDataToStorage();
-                            renderGallery();
-                            showNotification('图片已移动到文件夹', 'success');
+                            
+                            // 同步到服务器
+                            fetch(`/api/images/${image.id}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${adminToken}`
+                                },
+                                body: JSON.stringify({
+                                    url: image.url,
+                                    filename: image.filename,
+                                    category: image.category,
+                                    description: image.description || '',
+                                    folderId: image.folderId
+                                })
+                            })
+                            .then(response => {
+                                if (!response.ok) {
+                                    throw new Error(`HTTP error! status: ${response.status}`);
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                if (data.success) {
+                                    console.log('图片文件夹信息已同步到服务器');
+                                    renderGallery();
+                                    showNotification('图片已移动到文件夹', 'success');
+                                } else {
+                                    throw new Error(data.error || '同步失败');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('同步图片文件夹信息失败:', error);
+                                // 如果同步失败，恢复本地数据
+                                image.folderId = oldFolderId;
+                                saveDataToStorage();
+                                renderGallery();
+                                showNotification('移动失败: ' + error.message, 'error');
+                            });
                         }
                         document.body.removeChild(overlay);
                     });
